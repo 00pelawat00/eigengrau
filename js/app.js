@@ -2,6 +2,7 @@ import * as V from './vault.js';
 import * as DB from './db.js';
 import { seedState } from './seed.js';
 import { normRecovery } from './crypto.js';
+import { parseImport, planImport, applyImport } from './importer.js';
 
 // ---------- helpers ---------------------------------------------------------
 const root = document.getElementById('root');
@@ -535,6 +536,12 @@ function vSettings() {
       <label class="btn ghost" style="cursor:pointer">${L('Import & gabung fail', 'Import & merge file')}<input type="file" id="importf" accept=".eigengrau,application/json" hidden></label>
     </div>
   </div>
+  <div class="card"><h2 style="margin-bottom:.4rem">${L('Import dari Claude', 'Import from Claude')}</h2>
+    <p class="small" style="margin-bottom:.9rem">${L('Selepas sesi dengan Claude, muat turun fail import (tugasan, milestone, mesyuarat, literatur) dan masukkan di sini. Anda boleh semak dahulu sebelum import.', 'After a session with Claude, download the import file (tasks, milestones, meetings, literature) and add it here. You can review it before importing.')}</p>
+    <div style="display:flex;flex-wrap:wrap;gap:.5rem">
+      <label class="btn" style="cursor:pointer">${L('Pilih fail import', 'Choose import file')}<input type="file" id="claudef" accept=".json,application/json,text/plain" hidden></label>
+      <button class="btn ghost" data-act="pasteimport">${L('Tampal teks', 'Paste text')}</button>
+    </div></div>
   <div class="card"><h2 style="margin-bottom:.4rem">Zotero</h2>
     <p class="small" style="margin-bottom:.9rem">${L('Cipta API key (baca sahaja) di', 'Create a read-only API key at')} <a href="https://www.zotero.org/settings/keys" target="_blank" rel="noopener">zotero.org/settings/keys</a>. ${L('User ID tertera di halaman yang sama.', 'Your User ID is shown on the same page.')}</p>
     <form id="fzot"><label class="f"><span>User ID</span><input name="userId" value="${esc(z.userId)}" inputmode="numeric" autocomplete="off"></label>
@@ -544,16 +551,31 @@ function vSettings() {
   <div class="card"><h2 style="margin-bottom:.4rem">${L('Zon bahaya', 'Danger zone')}</h2>
     <p class="small" style="margin-bottom:.9rem">${L('Padam semua data Eigengrau dari peranti ini. Eksport backup dahulu.', 'Delete all Eigengrau data from this device. Export a backup first.')}</p>
     <button class="btn danger" data-act="erase">${L('Padam semua data', 'Erase all data')}</button></div>
-  </div><p class="small" style="margin-top:1rem">Eigengrau v1.0 · ${L('Install: guna menu browser “Install app” / “Add to Home Screen”.', 'Install: use the browser menu “Install app” / “Add to Home Screen”.')}</p>`;
+  </div><p class="small" style="margin-top:1rem">Eigengrau v1.1 · ${L('Install: guna menu browser “Install app” / “Add to Home Screen”.', 'Install: use the browser menu “Install app” / “Add to Home Screen”.')}</p>`;
 }
 afterRender.settings = async () => {
   root.querySelector('#fprof').onsubmit = e => { e.preventDefault(); const f = e.target; V.setMeta({ name: f.name.value.trim(), startMonth: f.startMonth.value, totalMonths: +f.totalMonths.value, supervisor: f.supervisor.value.trim() }); toast(L('Disimpan.', 'Saved.')); };
   root.querySelector('#fzot').onsubmit = e => { e.preventDefault(); V.setMeta({ zotero: { ...S().meta.zotero, userId: e.target.userId.value.trim(), apiKey: e.target.apiKey.value.trim() } }); toast(L('Disimpan.', 'Saved.')); };
   root.querySelector('#autolock').onchange = e => { V.setMeta({ autoLockMin: +e.target.value }); toast(L('Disimpan.', 'Saved.')); };
+  root.querySelector('#claudef').onchange = async e => { const file = e.target.files[0]; e.target.value = ''; if (file) reviewImport(await file.text()); };
   root.querySelector('#importf').onchange = async e => { const file = e.target.files[0]; if (file) await importMerge(await file.text()); };
   const info = root.querySelector('#syncinfo');
   if (info) { const h = await DB.get('synchandle'); info.textContent = h ? L(`Fail sync: ${h.name}`, `Sync file: ${h.name}`) : L('Belum pilih fail sync.', 'No sync file chosen yet.'); }
 };
+
+function reviewImport(text) {
+  let data;
+  try { data = parseImport(text); }
+  catch (e) { toast(e.message === 'notimport' ? L('Ini bukan fail import Eigengrau.', 'This is not an Eigengrau import file.') : L('Fail tidak dapat dibaca.', 'Could not read the file.')); return; }
+  const plan = planImport(data);
+  const names = { tasks: L('Tugasan', 'Tasks'), milestones: 'Milestone', meetings: L('Mesyuarat', 'Meetings'), literature: L('Literatur', 'Literature') };
+  const rows = Object.keys(names).filter(c => data[c].length).map(c => `<div style="margin-bottom:.8rem"><div style="display:flex;gap:.5rem;align-items:center"><b>${names[c]}</b>${plan[c].add ? `<span class="pill p-sage">+${plan[c].add} ${L('baru', 'new')}</span>` : ''}${plan[c].update ? `<span class="pill p-grey">${plan[c].update} ${L('kemaskini', 'update')}</span>` : ''}</div>
+    <ul class="small" style="margin:.3rem 0 0 1.2rem">${data[c].slice(0, 8).map(x => `<li>${esc(x.title || fmt(x.date))}${x.date ? ' · ' + fmt(x.date) : x.due ? ' · ' + fmt(x.due) : ''}</li>`).join('')}${data[c].length > 8 ? `<li>${L(`dan ${data[c].length - 8} lagi`, `and ${data[c].length - 8} more`)}</li>` : ''}</ul></div>`).join('');
+  if (!rows) { toast(L('Fail import kosong.', 'The import file is empty.')); return; }
+  openModal(`<h2>${L('Semak import', 'Review import')}</h2>${data.title ? `<p class="muted" style="margin-bottom:.9rem">${esc(data.title)}</p>` : ''}${rows}
+    <p class="small">${L('Item yang sudah ada dikemaskini, bukan diduplikasi. Status, bintang dan nota anda dikekalkan.', 'Existing items are updated, not duplicated. Your status, stars and notes are kept.')}</p>`,
+    () => { applyImport(data, L('Penyelia', 'Supervisor')); toast(L('Import selesai.', 'Import done.')); }, { ok: L('Import', 'Import') });
+}
 
 async function importMerge(text) {
   try { await V.mergeFile(text); toast(L('Fail digabungkan.', 'File merged.')); }
@@ -721,6 +743,8 @@ const actions = {
   litfilter: el => { ui.litFilter = el.dataset.v; renderApp(); },
   zsync: () => zoteroSync(),
   export: async () => download(await V.exportFile()),
+  pasteimport: () => openModal(`<h2>${L('Tampal teks import', 'Paste import text')}</h2><p class="small" style="margin-bottom:.8rem">${L('Salin teks import yang Claude beri (bermula dengan {"app": "eigengrau-import"…) dan tampal di sini.', 'Copy the import text Claude gave you (starting with {"app": "eigengrau-import"…) and paste it here.')}</p><label class="f"><textarea name="t" style="min-height:12rem;font-family:ui-monospace,monospace;font-size:.85rem" required></textarea></label>`,
+    f => { const t = f.t.value; setTimeout(() => reviewImport(t), 50); }, { ok: L('Semak', 'Review') }),
   syncnow: () => syncNow(),
   pickfile: () => pickSyncFile(),
   setpin: () => openModal(`<h2>${L('Tetapkan PIN', 'Set PIN')}</h2><p class="small" style="margin-bottom:.8rem">${L('6 digit. Kata laluan diperlukan semula selepas 5 cubaan salah atau 14 hari.', '6 digits. Password is required again after 5 wrong tries or 14 days.')}</p>

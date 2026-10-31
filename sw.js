@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Bump VERSION on every release.
-const VERSION = 'eigengrau-v1.0.0';
-const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'css/app.css', 'js/app.js', 'js/vault.js', 'js/crypto.js', 'js/db.js', 'js/seed.js',
+const VERSION = 'eigengrau-v1.1.0';
+const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'css/app.css', 'js/app.js', 'js/vault.js', 'js/crypto.js', 'js/db.js', 'js/seed.js', 'js/importer.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
